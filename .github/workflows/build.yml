@@ -1,0 +1,46 @@
+name: Build Avito APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android project
+        run: flutter create --platforms=android --org com.avito --project-name avito .
+
+      - name: Set package name and app name
+        run: |
+          sed -i -E 's/applicationId\s*=?\s*"[^"]*"/applicationId = "com.avito.com"/' android/app/build.gradle*
+          sed -i 's/android:label="[^"]*"/android:label="Avito"/' android/app/src/main/AndroidManifest.xml
+          rm -rf test
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: avito-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
