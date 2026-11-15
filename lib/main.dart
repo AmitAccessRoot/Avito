@@ -14,6 +14,9 @@ const Color kLine = Color(0xFFE3E8EF);
 const double kRate = 0.15;
 const double kWaitSeconds = 5.0;
 const double kCrashShowSeconds = 3.0;
+const double kStartBalance = 20.0;
+const int kMinBet = 10;
+const int kMaxBet = 100000;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +47,11 @@ class AvitoApp extends StatelessWidget {
         splashColor: Colors.transparent,
         highlightColor: Colors.transparent,
         hoverColor: Colors.transparent,
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: kInk,
+          selectionHandleColor: kInk,
+          selectionColor: kInk.withAlpha(40),
+        ),
       ),
       home: const GamePage(),
     );
@@ -80,6 +88,126 @@ class Tap extends StatelessWidget {
   }
 }
 
+class BetDialog extends StatefulWidget {
+  final int initial;
+
+  const BetDialog({super.key, required this.initial});
+
+  @override
+  State<BetDialog> createState() => _BetDialogState();
+}
+
+class _BetDialogState extends State<BetDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.initial}');
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final v = int.tryParse(_controller.text.trim());
+    if (v == null || v < kMinBet) {
+      setState(() => _error = 'Minimum ₹$kMinBet');
+      return;
+    }
+    if (v > kMaxBet) {
+      setState(() => _error = 'Maximum ₹$kMaxBet');
+      return;
+    }
+    Navigator.of(context).pop(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Bet Amount',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          color: kInk,
+        ),
+      ),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        style: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+          color: kInk,
+        ),
+        decoration: InputDecoration(
+          prefixText: '₹ ',
+          errorText: _error,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: kLine),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: kInk, width: 1.5),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: kRed),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: kRed, width: 1.5),
+          ),
+        ),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        Tap(
+          onTap: () => Navigator.of(context).pop(),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: kGrey,
+              ),
+            ),
+          ),
+        ),
+        Tap(
+          onTap: _submit,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+            decoration: BoxDecoration(
+              color: kGreen,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
 
@@ -89,22 +217,19 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage>
     with SingleTickerProviderStateMixin {
-  static const List<double> _steps = [
-    10, 20, 50, 100, 200, 500, 1000, 2000, 5000
-  ];
-
   final math.Random _rng = math.Random();
   final ValueNotifier<double> _time = ValueNotifier<double>(0);
   final ValueNotifier<double> _countdown = ValueNotifier<double>(kWaitSeconds);
   final List<double> _history = [];
   late final Ticker _ticker;
 
+  int _tab = 0;
   Phase _phase = Phase.waiting;
   double _phaseStart = -1;
   double _lastNow = 0;
   double _crashPoint = 1.5;
-  double _balance = 10000.00;
-  double _betAmount = 100;
+  double _balance = kStartBalance;
+  double _betAmount = kMinBet.toDouble();
   double _pendingBet = 0;
   double _activeBet = 0;
 
@@ -243,91 +368,23 @@ class _GamePageState extends State<GamePage>
   }
 
   void _changeBet(int dir) {
-    int idx = 0;
-    for (int i = 0; i < _steps.length; i++) {
-      if (_steps[i] <= _betAmount) idx = i;
-    }
-    idx = (idx + dir).clamp(0, _steps.length - 1).toInt();
+    final next = _betAmount + dir * 10;
     setState(() {
-      _betAmount = _steps[idx];
+      _betAmount =
+          next.clamp(kMinBet.toDouble(), kMaxBet.toDouble()).toDouble();
     });
   }
 
-  void _showAddBalance() {
-    showModalBottomSheet<void>(
+  Future<void> _editBet() async {
+    final value = await showDialog<int>(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Add Balance',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: kInk,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Choose an amount to add to your wallet',
-                  style: TextStyle(fontSize: 13, color: kGrey),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    _addOption(ctx, 500),
-                    const SizedBox(width: 10),
-                    _addOption(ctx, 1000),
-                    const SizedBox(width: 10),
-                    _addOption(ctx, 5000),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (_) => BetDialog(initial: _betAmount.toInt()),
     );
-  }
-
-  Widget _addOption(BuildContext ctx, double amount) {
-    return Expanded(
-      child: Tap(
-        onTap: () {
-          setState(() {
-            _balance += amount;
-          });
-          Navigator.of(ctx).pop();
-          _snack('₹${fmt(amount)} added to wallet', color: kGreen);
-        },
-        child: Container(
-          height: 56,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: kBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: kLine),
-          ),
-          child: Text(
-            '+ ₹${amount.toInt()}',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: kGreen,
-            ),
-          ),
-        ),
-      ),
-    );
+    if (value != null && mounted) {
+      setState(() {
+        _betAmount = value.toDouble();
+      });
+    }
   }
 
   Widget _topBar() {
@@ -355,38 +412,34 @@ class _GamePageState extends State<GamePage>
             ),
           ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-            decoration: BoxDecoration(
-              color: kBg,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: kLine),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '₹ ${fmt(_balance)}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
+          Tap(
+            onTap: () => setState(() => _tab = 1),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: kBg,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: kLine),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.account_balance_wallet_outlined,
                     color: kInk,
+                    size: 18,
                   ),
-                ),
-                const SizedBox(width: 10),
-                Tap(
-                  onTap: _showAddBalance,
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: const BoxDecoration(
-                      color: kGreen,
-                      shape: BoxShape.circle,
+                  const SizedBox(width: 8),
+                  Text(
+                    '₹ ${fmt(_balance)}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: kInk,
                     ),
-                    child: const Icon(Icons.add, color: Colors.white, size: 20),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -464,9 +517,9 @@ class _GamePageState extends State<GamePage>
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '${_countdown.value.toStringAsFixed(1)}s',
+                            '${_countdown.value.ceil()}s',
                             style: const TextStyle(
-                              fontSize: 46,
+                              fontSize: 56,
                               fontWeight: FontWeight.w900,
                               color: kInk,
                             ),
@@ -534,33 +587,6 @@ class _GamePageState extends State<GamePage>
     );
   }
 
-  Widget _chip(double v) {
-    final selected = _betAmount == v;
-    return Expanded(
-      child: Tap(
-        onTap: () => setState(() => _betAmount = v),
-        child: Container(
-          height: 38,
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? kInk : Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: selected ? kInk : kLine),
-          ),
-          child: Text(
-            '₹${v.toInt()}',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: selected ? Colors.white : kInk,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _actionButton() {
     return AnimatedBuilder(
       animation: _time,
@@ -579,8 +605,8 @@ class _GamePageState extends State<GamePage>
           onTap = _cancelBet;
         } else {
           label = _phase == Phase.waiting
-              ? 'PLACE BET  ₹${fmt(_betAmount)}'
-              : 'BET NEXT ROUND  ₹${fmt(_betAmount)}';
+              ? 'PLACE BET  ₹${_betAmount.toInt()}'
+              : 'BET NEXT ROUND  ₹${_betAmount.toInt()}';
           color = kGreen;
           onTap = _placeBet;
         }
@@ -620,42 +646,117 @@ class _GamePageState extends State<GamePage>
         children: [
           Row(
             children: [
-              const Text(
-                'Bet Amount',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: kGrey,
-                ),
-              ),
-              const Spacer(),
               _roundBtn(Icons.remove, () => _changeBet(-1)),
-              Container(
-                width: 110,
-                alignment: Alignment.center,
-                child: Text(
-                  '₹ ${fmt(_betAmount)}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    color: kInk,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Tap(
+                  onTap: _editBet,
+                  child: Container(
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: kBg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: kLine),
+                    ),
+                    child: Text(
+                      '₹ ${_betAmount.toInt()}',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: kInk,
+                      ),
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(width: 10),
               _roundBtn(Icons.add, () => _changeBet(1)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _chip(50),
-              _chip(100),
-              _chip(500),
-              _chip(1000),
             ],
           ),
           const SizedBox(height: 12),
           _actionButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeView() {
+    return Column(
+      children: [
+        _topBar(),
+        _historyStrip(),
+        Expanded(child: _graph()),
+        _betPanel(),
+      ],
+    );
+  }
+
+  Widget _walletView() {
+    return Center(
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(vertical: 56),
+        decoration: BoxDecoration(
+          color: kBg,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: kLine),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '₹ ${fmt(_balance)}',
+          style: const TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.w900,
+            color: kInk,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _navItem(int index, IconData filled, IconData outlined) {
+    final selected = _tab == index;
+    return Tap(
+      onTap: () => setState(() => _tab = index),
+      child: SizedBox(
+        width: 72,
+        height: 60,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(selected ? filled : outlined, color: kInk, size: 28),
+            const SizedBox(height: 4),
+            Container(
+              width: 18,
+              height: 3,
+              decoration: BoxDecoration(
+                color: selected ? kInk : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bottomBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: kLine)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          _navItem(0, Icons.home_rounded, Icons.home_outlined),
+          _navItem(
+            1,
+            Icons.account_balance_wallet_rounded,
+            Icons.account_balance_wallet_outlined,
+          ),
         ],
       ),
     );
@@ -668,10 +769,13 @@ class _GamePageState extends State<GamePage>
       body: SafeArea(
         child: Column(
           children: [
-            _topBar(),
-            _historyStrip(),
-            Expanded(child: _graph()),
-            _betPanel(),
+            Expanded(
+              child: IndexedStack(
+                index: _tab,
+                children: [_homeView(), _walletView()],
+              ),
+            ),
+            _bottomBar(),
           ],
         ),
       ),
